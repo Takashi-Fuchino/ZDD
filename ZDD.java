@@ -1,5 +1,6 @@
 import java.util.*;
 import java.util.ArrayList;
+import java.util.HashSet;
 
 public class ZDD {
     protected enum State { Occupied, Empty, Deleted };
@@ -11,6 +12,13 @@ public class ZDD {
 	int _left;
 	int _refCnt;
 	State _state;
+	ZddElement() { 
+	    _var = -1;
+	    _right = -1;
+	    _left = -1;
+	    _refCnt = 0;
+	    _state = State.Empty;
+	}
 	ZddElement(final int var, final int right, final int left, final int refCnt, final State state) {
 	    _var = _var;
 	    _right = right;
@@ -77,6 +85,124 @@ public class ZDD {
     }
 
     Integer hf(int var, int l, int r) { return ((100*var)+(10*l)+r) % NUMBEROFNODES; }
+
+    public void zddInit(final Integer size, final int n) {
+	
+	decRef = new ArrayList<Integer>();
+	OPCACHETABLESIZE = size;
+	OpCacheTable = new OpCacheElement[size];
+
+	PATHCACHESIZE = size;
+	pathCacheTable = new PathCacheElement[size];
+  
+    	NUMBEROFNODES = size;
+    	zddTable = new ZddElement[size];
+
+	for (int i = 0; i < size; ++i) {
+	    OpCacheTable[i] = new OpCacheElement();
+	    pathCacheTable[i] = new PathCacheElement();
+	    zddTable[i] = new ZddElement();
+	}
+	
+    	zddTable[0].setVar(n); zddTable[1].setVar(n);
+    	zddTable[0].setLeft(-1); zddTable[1].setLeft(-1);
+    	zddTable[0].setRight(-1); zddTable[1].setRight(-1);
+    	zddTable[0].setState(State.Occupied); zddTable[1].setState(State.Occupied);
+
+    	OpCacheTable[0].setState(State.Empty); OpCacheTable[1].setState(State.Empty);
+    	pathCacheTable[0].setState(State.Empty); pathCacheTable[1].setState(State.Empty);
+       	for (Integer i = 2; i < size; ++i) {
+    	    zddTable[i].setState(State.Empty);
+    	    OpCacheTable[i].setState(State.Empty);
+    	    pathCacheTable[i].setState(State.Empty);
+    	}
+    	System.out.println("initialize the ZDD table and the operation cache table");
+    }
+
+    public int getnode(final int var, final int left, final int right) {
+    	if (0 == right) { return left; }
+
+    	int P = member(var, left, right);
+    	if (-2 != P)
+    	    return P;
+
+    	incRefCounter(left);
+    	incRefCounter(right);
+    	P = insert(var, left, right);
+    	return P;
+    }
+
+    
+    public int change(final int P, final int v) {
+    	if (v == zddTable[P].getVar())
+    	    return getnode(v, zddTable[P].getLeft(), zddTable[P].getRight());
+    	if (v < zddTable[P].getVar())
+    	    return getnode(v, 0, P);
+    	int R = memberOp(Op.Change, P, v);
+    	if (-2 != R)
+    	    return R;
+    	R = getnode(zddTable[P].getVar(), change(zddTable[P].getLeft(), v), change(zddTable[P].getRight(), v));
+    	insertOp(Op.Change, P, v, R);
+    	return R;
+    }
+
+    int union(final int P, final int Q) {
+	if (0 == P)
+	    return Q;
+	if (0 == Q || P == Q)
+	    return P;
+
+	int R = memberOp(Op.Union, P, Q);
+	if (-2 != R)
+	    return R;
+	if (zddTable[P].getVar() < zddTable[Q].getVar()) {
+	    R = getnode(zddTable[P].getVar(), union(zddTable[P].getLeft(), Q), zddTable[P].getRight());
+	}
+	if (zddTable[P].getVar() > zddTable[Q].getVar()) {
+	    R = getnode(zddTable[Q].getVar(), union(P, zddTable[Q].getLeft()), zddTable[Q].getRight());
+	}
+	if (zddTable[P].getVar() == zddTable[Q].getVar()) {
+	    R = getnode(zddTable[P].getVar(), union(zddTable[P].getLeft(), zddTable[Q].getLeft()), union(zddTable[P].getRight(), zddTable[Q].getRight()));
+	}
+	insertOp(Op.Union, P, Q, R);
+	return R;
+    }
+
+    int intersection(final int P, final int Q) {
+	if (0 == P || 0 == Q) { return 0; }
+	if (P == Q) { return P; }
+	int R = memberOp(Op.Intersection, P, Q);
+	if (-2 != R) { return R; }
+	if (zddTable[P].getVar() < zddTable[Q].getVar()) {
+	    R = intersection(zddTable[P].getLeft(), Q);
+	}
+	if (zddTable[P].getVar() > zddTable[Q].getVar()) {
+	    R = intersection(P, zddTable[Q].getLeft());
+	}
+	if (zddTable[P].getVar() == zddTable[Q].getVar()) {
+	    R = getnode(zddTable[P].getVar(), intersection(zddTable[P].getLeft(), zddTable[Q].getLeft()), intersection(zddTable[P].getRight(), zddTable[Q].getRight()));
+	}
+	insertOp(Op.Intersection, P, Q, R);
+	return R;
+    }
+
+    int setminus(final int P, final int Q) {
+	if (0 == P || P == Q) { return 0; }
+	if (0 == Q) { return P; }
+	int R = memberOp(Op.Setminus, P, Q);
+	if (-2 != R) { return R; }
+	if (zddTable[P].getVar() < zddTable[Q].getVar()) {
+	    R = getnode(zddTable[P].getVar(), setminus(zddTable[P].getLeft(), Q), zddTable[P].getRight());
+	}
+	if (zddTable[P].getVar() > zddTable[Q].getVar()) {
+	    R = setminus(P, zddTable[Q].getLeft());
+	}
+	if (zddTable[P].getVar() == zddTable[Q].getVar()) {
+	    R = getnode(zddTable[P].getVar(), setminus(zddTable[P].getLeft(), zddTable[Q].getLeft()), setminus(zddTable[P].getRight(), zddTable[Q].getRight()));
+	}
+	insertOp(Op.Setminus, P, Q, R);
+	return R;
+    }
 
     public int getFoundNumber(int var, int left, int right) {
     	int i, k, found = -1;
@@ -189,6 +315,7 @@ public class ZDD {
 	for (Integer i = 0; i < NUMBEROFNODES/2; ++i)
 	    zddTable[i] = new ZddElement(W[i]);
     	for (Integer i = NUMBEROFNODES/2; i < NUMBEROFNODES; ++i) {
+	    zddTable[i] = new ZddElement();
     	    zddTable[i].setRefCntZero();
     	    zddTable[i].setStateEmpty();
     	}
@@ -206,14 +333,21 @@ public class ZDD {
 	int _P;
 	ArrayList<String> _L;
 	State _state;
+	PathCacheElement() {
+	    _P = 0;
+	    _L = null;
+	    _state = State.Empty;
+	}
 	PathCacheElement(final int P, final ArrayList<String> L, final State state) {
 	    _P = P;
 	    _L = new ArrayList<String>(L);
 	    _state = state;
 	}
 	PathCacheElement(PathCacheElement base) {
+	    System.out.println(base);
 	    _P = base._P;
-	    _L = new ArrayList<String>(base._L);
+	    if (null != base._L)
+	    	_L = new ArrayList<String>(base._L);
 	    _state = base._state;
 	}
 	public int getP(){ return _P; }
@@ -223,10 +357,158 @@ public class ZDD {
 	public void setL(final ArrayList<String> L) { _L = new ArrayList<String>(L); }
 	public void setState(final State state) { _state = state; }
     	public void setStateEmpty() { _state = State.Empty; }
+
+	@Override
+	public String toString() {
+	    return "P = " + _P + ", L = " + _L + ", state = " + _state;
+	}
     }
 
     Integer PATHCACHESIZE;
     PathCacheElement[] pathCacheTable = null;
+
+    public Integer hfPath(final int P) { return P % PATHCACHESIZE; }
+
+    Integer getFoundNumberPath(final int P) {
+	int i, k, found = -1;
+	State cstate;
+
+	k = i = hfPath(P);
+	do {
+	    cstate = pathCacheTable[k].getState();
+	    if (State.Empty == cstate || State.Deleted == cstate) {
+		if (found < 0)
+		    found = k;
+	    }
+	    else {
+		if (pathCacheTable[k].getP() == P)
+		    return k;
+	    }
+	    k = (k+1) % PATHCACHESIZE;
+	} while (State.Empty != cstate && k != i);
+	return found;
+    }
+    
+    ArrayList<String> memberPath(final int P) {
+    	int i, k;
+    	State cstate;
+
+    	k = i = hfPath(P);
+    	do {
+    	    cstate = pathCacheTable[k].getState();
+    	    if (State.Occupied == cstate) {
+    		if (pathCacheTable[k].getP() == P)
+    		    return pathCacheTable[k].getL(); /* find the input node */
+    	    }
+    	    k = (k+1) % PATHCACHESIZE;
+    	} while (State.Empty != cstate && k != i);
+	
+    	return null; /* there is no input node */
+    }
+
+    public void insertPath(final int P, ArrayList<String> L) {
+	int found = getFoundNumberPath(P);
+	while (found < 0) {
+	    increasePathCacheTable();
+	    found = getFoundNumberPath(P);
+	}
+
+    	pathCacheTable[found].setState(State.Occupied);
+    	pathCacheTable[found].setL(L);
+    }
+
+    public void deletePath(final int P) {
+    	int i, k;
+    	State cstate;
+
+    	k = i = hfPath(P);
+    	do {
+    	    cstate = pathCacheTable[k].getState();
+    	    if (State.Occupied == cstate) {
+    		if (pathCacheTable[k].getP() == P) { /* find the input node and delete it */
+    		    pathCacheTable[k].setState(State.Deleted);
+    		    return;
+    		} 
+    	    }
+    	    k = (k+1) % PATHCACHESIZE; 
+    	} while (State.Empty != cstate && k != i);
+    	return; /* there is no input node */
+    }
+
+    void paddingCharacter(ArrayList<String> L, final char c, final int l) {
+	if (null == L || 0 == l)
+	    return;
+	final int originLength = L.get(0).length();
+	final int newLength = originLength + l;
+	for (String s : L) {
+	    int i;
+	    int LL = newLength - originLength;
+	    for (i = 0; i < LL; ++i)
+		;
+	    for ( ; i < newLength; ++i)
+		;
+	}
+    }
+    
+    ArrayList<String> pathsTo1Sub(final int P) {
+	if (0 == P)
+	    return null;
+	if (1 == P) {
+	    ArrayList<String> E = new ArrayList<String>();
+	    String e = new String("");
+	    E.add(e);
+	    return E;
+	}
+
+	ArrayList<String> ss = memberPath(P);
+	if (null != ss) {
+	    ArrayList<String> L = new ArrayList<String>(ss);
+	    return ss;
+	}
+
+	ArrayList<String> LL = pathsTo1Sub(zddTable[P].getLeft());
+	paddingCharacter(LL, '0', zddTable[zddTable[P].getLeft()].getVar()-zddTable[P].getVar()-1);
+	paddingCharacter(LL, '0', 1);
+
+
+	ArrayList<String> LR = pathsTo1Sub(zddTable[P].getRight());
+	paddingCharacter(LR, '0', zddTable[zddTable[P].getRight()].getVar()-zddTable[P].getVar()-1);
+	paddingCharacter(LR, '1', 1);
+
+	ss = listStringsCopyConcat(LL, LR);
+	insertPath(P, ss);
+
+	return ss;	
+    }
+
+    ArrayList<String> listStringsCopyConcat(ArrayList<String> L1, ArrayList<String> L2) {
+	ArrayList<String> L = new ArrayList<String>(L1);
+	for (String s : L2)
+	    L.add(s);
+	return L;
+    }
+    
+    ArrayList<String> pathsTo1(final int P) {
+	ArrayList<String> S = pathsTo1Sub(P);
+	paddingCharacter(S, '0', zddTable[P].getVar());
+	return S;
+    }
+    
+    void increasePathCacheTable() {
+	PathCacheElement Q[] = new PathCacheElement[PATHCACHESIZE];
+	for (Integer i = 0; i < PATHCACHESIZE; ++i)
+	    Q[i] = new PathCacheElement(pathCacheTable[i]);
+	PATHCACHESIZE *= 2;
+	pathCacheTable = null;
+
+	pathCacheTable = new PathCacheElement[PATHCACHESIZE];
+	for (Integer i = 0; i < PATHCACHESIZE/2; ++i)
+	    pathCacheTable[i] = new PathCacheElement(Q[i]);
+	for (Integer i = PATHCACHESIZE/2; i < PATHCACHESIZE; ++i) {
+	    pathCacheTable[i] = new PathCacheElement();
+	    pathCacheTable[i].setStateEmpty();
+	}
+    }
 
     void resetPathCacheTable() {
 	PathCacheElement Q[] = new PathCacheElement[PATHCACHESIZE];
@@ -234,12 +516,16 @@ public class ZDD {
 	    Q[i] = new PathCacheElement(pathCacheTable[i]);
 	pathCacheTable = null;
 	PATHCACHESIZE *= 2;
+	pathCacheTable = new PathCacheElement[PATHCACHESIZE];
 	for (Integer i = 0; i < PATHCACHESIZE/2; ++i)
 	    pathCacheTable[i] = new PathCacheElement(Q[i]);
-	for (Integer i = PATHCACHESIZE/2; i < PATHCACHESIZE; ++i)
+	for (Integer i = PATHCACHESIZE/2; i < PATHCACHESIZE; ++i) {
+	    pathCacheTable[i] = new PathCacheElement();
 	    pathCacheTable[i].setStateEmpty();
+	}
     }
-
+    
+    
     /*************** オペレーションキャッシュ ***************/
 
     protected enum Op { Change, Union, Intersection, Setminus };
@@ -250,13 +536,26 @@ public class ZDD {
     	int _G;
     	int _H;
     	State _state;
-    	public OpCacheElement(Op op,int f,int g,int h, State state){
+
+	OpCacheElement() {
+	    _op = null;
+	    _F = _G = _H = -1;
+	    _state = State.Empty;
+	}
+    	OpCacheElement(Op op,int f,int g,int h, State state){
     	    _op = op;
     	    _F = f;
     	    _G = g;
     	    _H = h;
     	    _state = state;
     	}
+	OpCacheElement(OpCacheElement base) {
+	    _op = base._op;
+	    _F = base._F;
+	    _G = base._G;
+	    _H = base._H;
+	    _state = base._state;
+	}
 	public Op getOp() { return _op; }
 	public int getF() { return _F; }
 	public int getG() { return _G; }
@@ -295,7 +594,7 @@ public class ZDD {
 	    return false;
     	return true;
     }
-
+    
     public int memberOp(Op o, int f, int g) {
     	int i, k;
     	State cstate;
@@ -311,6 +610,33 @@ public class ZDD {
     	    /* printf("collision occurs in op\n"); */
     	} while (State.Empty != cstate && k != i);
     	return -2; /* there is no input node */
+    }
+
+    public void insertOp(final Op o, final int f, final int g, final int h) {
+    	int i, k, found = -1;
+    	State cstate;
+
+    	k = i = hfOp(o, f, g);
+    	do {
+    	    cstate = OpCacheTable[k].getState();
+    	    if (State.Empty == cstate || State.Deleted == cstate) {
+		if (found < 0) /* there is an empty cell */
+		    found = k;
+	    } 
+    	    else {
+		if (eqOpTableEntry(k, o, f, g)) /* input node already exists */
+		    return;
+	    } 
+    	    k = (k+1) % OPCACHETABLESIZE;
+    	    /* printf("collision occurs in op\n"); */
+    	} while (State.Empty != cstate && k != i);
+
+
+    	OpCacheTable[found].setState(State.Occupied);
+    	OpCacheTable[found].setOp(o);
+    	OpCacheTable[found].setF(f);
+    	OpCacheTable[found].setG(g);
+    	OpCacheTable[found].setH(h);
     }
 
     public void deleteOp(final Op o, final int f, final int g) {
@@ -341,189 +667,39 @@ public class ZDD {
 	OpCacheTable = null;
 	OPCACHETABLESIZE *= 2;
 	OpCacheTable = new OpCacheElement[OPCACHETABLESIZE];
+	for (Integer i = 0; i < OPCACHETABLESIZE; ++i) {
+	    OpCacheTable[i] = new OpCacheElement();
+	    OpCacheTable[i].setStateEmpty();
+	}
+    }
+
+    void increaseOpCacheSlots() {
+	OpCacheElement[] OP = new OpCacheElement[OPCACHETABLESIZE];
 	for (Integer i = 0; i < OPCACHETABLESIZE; ++i)
+	    OP[i] = new OpCacheElement(OpCacheTable[i]);
+	OPCACHETABLESIZE *= 2;
+	OpCacheTable = null;
+
+	OpCacheTable = new OpCacheElement[OPCACHETABLESIZE];
+	for (Integer i = 0; i < OPCACHETABLESIZE/2; ++i)
+	    OpCacheTable[i] = new OpCacheElement(OP[i]);
+	for (Integer i = OPCACHETABLESIZE/2; i < OPCACHETABLESIZE; ++i)
 	    OpCacheTable[i].setStateEmpty();
     }
-    
-
-    // public void inc_refcounter(int P) { ++ZDD_table[P].ref_cnt; }
-    
-    // /************************************** Operation Cache Table **************************************/
-
-    // public void insert_op(String o, int f, int g, int h) {
-    // 	int i, k, found = -1;
-    // 	String cstate;
-
-    // 	k = i = hf_op(o, f, g);
-    // 	do {
-    // 	    cstate = op_cache_table[k].state;
-    // 	    if ("empty" == cstate || "deleted" == cstate) { if (found < 0) { found = k; } } /* there is an empty cell */
-    // 	    else { if (eq_op_table_entry(k, o, f, g)) { return; } } /* input node already exists */
-    // 	    k = (k+1) % op_cache_table_size;
-    // 	    /* printf("collision occurs in op\n"); */
-    // 	} while ("empty" != cstate && k != i);
-
-    // 	if (-1 == found) { found = i; } /* update the tables by new entry */
-
-    // 	op_cache_table[found].state = "occupied";
-    // 	op_cache_table[found].op = o;
-    // 	op_cache_table[found].F = f;
-    // 	op_cache_table[found].G = g;
-    // 	op_cache_table[found].H = h;
-    // }
-    // class count_cache_element{
-    // 	int P;
-    // 	int sum;
-    // 	String state;
-    // }
-    // Integer count_cache_table_size;
-    // count_cache_element count_cache_table[] ;
-    // Integer hf_count(int P) {
-    // 	return P % op_cache_table_size;
-    // }
-
-    // public int member_count(int P){
-    // 	int i, k;
-    // 	String cstate;
-
-    // 	k = i = hf_count(P);
-    // 	do {
-    // 	    cstate = count_cache_table[k].state;
-    // 	    if ("occupied" == cstate) {
-    // 		if (count_cache_table[k].P == P) { return count_cache_table[k].sum; } /* find the input node */
-    // 	    }
-    // 	    k = (k+1) % count_cache_table_size;
-    // 	} while ("empty" != cstate && k != i);
-    // 	return -2; /* there is no input node */
-    // }
-    // class path_cache_element{
-    // 	int P;
-    // 	String L[];
-    // 	String state;
-    // }
-    // Integer path_cache_table_size;
-    // path_cache_element path_cache_table[];
-    // String member_path[];
-    // public int  hf_path(int P) {
-    // 	return P % op_cache_table_size;
-    // }
-    // String[] member_path(int P) {
-    // 	int i, k;
-    // 	String cstate;
-
-    // 	k = i = hf_path(P);
-    // 	do {
-    // 	    cstate = path_cache_table[k].state;
-    // 	    if ("occupied" == cstate) {
-    // 		if (path_cache_table[k].P == P)
-    // 		    return path_cache_table[k].L; /* find the input node */
-    // 	    }
-    // 	    k = (k+1) % path_cache_table_size;
-    // 	} while ("empty" != cstate && k != i);
-    // 	return null; /* there is no input node */
-    // }
-    // public void delete_path(int P) {
-    // 	int i, k;
-    // 	String cstate;
-
-    // 	k = i = hf_path(P);
-    // 	do {
-    // 	    cstate = path_cache_table[k].state;
-    // 	    if ("occupied" == cstate) {
-    // 		if (path_cache_table[k].P == P) { /* find the input node and delete it */
-    // 		    count_cache_table[k].state = "deleted";
-    // 		    return;
-    // 		} 
-    // 	    }
-    // 	    k = (k+1) % count_cache_table_size;
-    // 	} while ("empty" != cstate && k != i);
-    // 	return; /* there is no input node */
-    // }
-    // public void insert_path(int P, String[] LS) {
-    // 	int i, k, found = -1;
-    // 	String cstate;
-
-    // 	k = i = hf_path(P);
-    // 	do {
-    // 	    cstate = path_cache_table[k].state;
-    // 	    if ("empty" == cstate || "deleted" == cstate) {
-    // 		if (found < 0)
-    // 		    found = k;  /* there is an empty cell */
-    // 	    }
-    // 	    else {
-    // 		if (path_cache_table[k].P == P)
-    // 		    return;  /* input node already exists */
-    // 	    }
-    // 	    k = (k+1) % path_cache_table_size;
-    // 	} while ("empty" != cstate && k != i);
-
-    // 	if (-1 == found) { found = i; } /* update the tables by new entry */
-
-    // 	path_cache_table[found].state = "occupied";
-    // 	path_cache_table[found].L = LS;
-    // }
-    // /******************************************* ZDD manipulating routine *******************************************/
-
-    // public void zdd_init(Integer size, int n) {
-	
-    // 	dec_ref.clear();
-	      
-    // 	op_cache_table_size = size;
-    // 	op_cache_table = null;
-
-    // 	/* COUNT_CACHE_TABLE_SIZE = size; */
-    // 	/* count_cache_table = (count_cache_element*)calloc(size, sizeof(count_cache_element)); */
-
-    // 	path_cache_table_size = size;
-    // 	path_cache_table = null;
-  
-    // 	NUM_OF_NODES = size;
-    // 	ZDD_table = null;
-    // 	ZDD_table[0].var = ZDD_table[1].var = n;
-    // 	ZDD_table[0].left = ZDD_table[1].left = -1;
-    // 	ZDD_table[0].right = ZDD_table[1].right = -1;
-    // 	ZDD_table[0].state = ZDD_table[1].state = "occupied";
-
-    // 	op_cache_table[0].state = op_cache_table[1].state = "empty";
-    // 	/* count_cache_table[0].state = count_cache_table[1].state = empty; */
-    // 	path_cache_table[0].state = path_cache_table[1].state = "empty";
-    //    	for (Integer i = 2; i < size; ++i) {
-    // 	    /* printf("i = %lld, size = %lld\n", i, size); */
-    // 	    ZDD_table[i].state = "empty";
-    // 	    op_cache_table[i].state = "empty";
-    // 	    /* count_cache_table[i].state = empty; */
-    // 	    path_cache_table[i].state = "empty";
-    // 	}
-    // 	System.out.println("initialize the ZDD table and the operation cache table\n");
-    // }
-    // public int topvar(int P) { return ZDD_table[P].var; }
-    // public int get_left(int P) { return ZDD_table[P].left; }
-    // public int get_right(int P) { return ZDD_table[P].right; }
-
-    // public int getnode(int var, int left, int right) {
-    // 	if (0 == right) { return left; }
-
-    // 	int P = member(var, left, right);
-    // 	/* printf("(mem) var = %d, left = %d, right = %d, P = %d\n", var, left, right, P); */
-    // 	if (-2 != P)
-    // 	    return P;
-
-    // 	inc_refcounter(left);
-    // 	inc_refcounter(right);
-    // 	P = insert(var, left, right);
-    // 	/* printf("(ins) var = %d, left = %d, right = %d, P = %d\n", var, left, right, P); */
-    // 	return P;
-    // }
-    // public int change(int P, int v) {
-    // 	if (v == ZDD_table[P].var)
-    // 	    return getnode(v, ZDD_table[P].left, ZDD_table[P].right);
-    // 	if (v < ZDD_table[P].var)
-    // 	    return getnode(v, 0, P);
-    // 	int R = member_op(_change, P, v);
-    // 	if (-2 != R)
-    // 	    return R;
-    // 	R = getnode(ZDD_table[P].var, change(ZDD_table[P].left, v), change(ZDD_table[P].right, v));
-    // 	insert_op(_change, P, v, R);
-    // 	return R;
-    // }
+    void zddPrintSub(final int P, HashSet<Integer> U) {
+	if (-1 == P)
+	    return;
+	if (U.contains(P))
+	    return;
+	System.out.println(P + " : " + zddTable[P]);
+	U.add(P);
+	zddPrintSub(zddTable[P].getLeft(), U);
+	zddPrintSub(zddTable[P].getRight(), U);
+    }
+    void zddPrint(final int P) {
+	if (-1 == P)
+	    return;
+	HashSet<Integer> U = new HashSet<Integer>();
+	zddPrintSub(P, U);
+    }
 }
